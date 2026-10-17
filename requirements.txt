@@ -1,0 +1,22 @@
+# Core LangChain (LCEL / Runnables yahin se aate hain)
+langchain
+langchain-core
+langchain-community
+
+# Google Gemini (agents ke liye LLM)
+langchain-google-genai
+
+# ReAct agents
+langgraph
+
+# Tool 1: Tavily search
+tavily-python
+langchain-tavily
+
+# Tool 2: BeautifulSoup web scraping
+beautifulsoup4
+requests
+lxml
+
+# API keys / env variables
+python-dotenv
