@@ -1,67 +1,82 @@
 from agents import build_reader_agent, build_search_agent, writer_chain, critic_chain
+from tools import web_search, scrape_url
 
-def run_research_pipeline(topic : str) -> dict:
+#  -------------------------------------------------------------------------
 
+BLOCKED = ("instagram.com", "facebook.com", "x.com", "twitter.com", "youtube.com")
+
+def run_research_pipeline(topic: str, use_critic: bool = True, max_scrape: int = 2) -> dict:
     state = {}
 
-    print("\n" +" ="*50)
-    print("step 1 - search agent is  working...")
-    print("="*50)
+    # Step 1
+    print("\nstep 1 - searching...")
+    state["search_results"] = web_search.invoke({"query": topic})
 
-    search_agent = build_search_agent()
-    search_result = search_agent.invoke({
-        "messages": [("user", f"Find recent, reliable and detailed information about: {topic}")]
-    })
+    # Step 2
+    print("\nstep 2 - scraping...")
+    urls = [
+        line.replace("URL:", "").strip()
+        for line in state["search_results"].split("\n")
+        if line.startswith("URL:")
+    ]
+    urls = [u for u in urls if not any(b in u for b in BLOCKED)][:max_scrape]
 
-    state["search_results"] = search_result['messages'][-1].content
+    scraped = []
+    for u in urls:
+        text = scrape_url.invoke({"url": u})[:1500]      
+        scraped.append(f"SOURCE: {u}\n{text}")
+    state["scraped_content"] = "\n\n".join(scraped)
 
-    print(state['search_results'][0]['text'])
+    if not state["scraped_content"]:
+        raise ValueError("No scrapable content found.")
 
-    print("\n" +" ="*50)
-    print("step 2 - reader agent is  working...")
-    print("="*50)
-
-    reader_agent = build_reader_agent()
-    reader_result = reader_agent.invoke({
-        "messages": [(
-            f"Based on the following search results about '{topic}',"
-            f"Pick the most relevant URL and scrape it for deeper content. \n\n"
-            f"Search Results:\n{state['search_results'][:800]}"
-        )]
-    })
-
-    state['scraped_content'] = reader_result['messages'][-1].content
-
-    print("\nscraped content: \n", state['scraped_content'][0]['text'])
-
-    print("\n" +" ="*50)
-    print("step 3 - writer is drafting the work...")
-    print("="*50)
-
+    # Step 3
+    print("\nstep 3 - writer is drafting...")
     research_combined = (
-        f"SEARCH RESULTS : \n {state['search_results']} \n\n"
-        f"DETAILED SCRAPED CONTENT : \n {state['scraped_content']}"
+        f"SEARCH RESULTS:\n{state['search_results']}\n\n"
+        f"DETAILED SCRAPED CONTENT:\n{state['scraped_content']}"
     )
+    state["report"] = writer_chain.invoke({"topic": topic, "research": research_combined})
+    print("\nFinal Report\n", state["report"])
 
-    state["report"] = writer_chain.invoke({
-        "topic": topic,
-        "research": research_combined
-    })
-
-    print("\n Final Report\n", state['report'])
-
-    print("\n" +" ="*50)
-    print("step 4 - critic is reveiwing the report...")
-    print("="*50)
-
-    state['feedback'] = critic_chain.invoke({
-        "report": state['report']
-    })
-
-    print("\n critic report \n", state['feedback'])
+    # Step 4
+    if use_critic:
+        print("\nstep 4 - critic is reviewing...")
+        state["feedback"] = critic_chain.invoke({"report": state["report"]})
+        print("\ncritic report\n", state["feedback"])
 
     return state
+
+def revise_research_report(topic, report, feedback):
+    revised_report = writer_chain.invoke({
+        "topic": topic,
+        "research": f"""
+Original Report:
+{report}
+
+Critic Feedback:
+{feedback}
+
+Revise the report using the critic's suggestions.
+- Fix the identified weaknesses.
+- Use only facts and sources supported by the original research.
+- Do not invent facts, statistics, or URLs.
+- Return the complete revised report.
+"""
+    })
+
+    revised_feedback = critic_chain.invoke({
+        "report": revised_report
+    })
+
+    return {
+        "revised_report": revised_report,
+        "revised_feedback": revised_feedback
+    }
+    
 
 if __name__ == "__main__":
     topic = input("\nEnter a research topic : ")
     run_research_pipeline(topic)
+
+
